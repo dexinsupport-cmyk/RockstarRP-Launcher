@@ -1,0 +1,118 @@
+name: Build Dexin Mobile APK
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build Dexin Mobile
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Find uploaded ZIP
+        run: |
+          echo "Files in repository:"
+          find . -maxdepth 2 -type f -print
+
+      - name: Extract Dexin Mobile Source
+        run: |
+          ZIP_FILE=$(find . -maxdepth 1 -type f -name "*.zip" | head -n 1)
+
+          if [ -z "$ZIP_FILE" ]; then
+            echo "ERROR: No ZIP file found!"
+            exit 1
+          fi
+
+          echo "Found: $ZIP_FILE"
+
+          mkdir -p dexin_source
+          unzip -o "$ZIP_FILE" -d dexin_source
+
+          echo "Extracted files:"
+          find dexin_source -maxdepth 2 -type f | head -100
+
+      - name: Detect Gradle Project
+        run: |
+          PROJECT_DIR=$(find dexin_source -type f -name "gradlew" -print -quit | xargs -r dirname)
+
+          if [ -z "$PROJECT_DIR" ]; then
+            echo "ERROR: gradlew not found!"
+            exit 1
+          fi
+
+          PROJECT_DIR=$(cd "$PROJECT_DIR" && pwd)
+
+          echo "Gradle project found at:"
+          echo "$PROJECT_DIR"
+
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+
+      - name: Setup Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "8"
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK Packages
+        run: |
+          yes | sdkmanager --licenses || true
+
+          sdkmanager \
+            "platform-tools" \
+            "platforms;android-30" \
+            "build-tools;30.0.1"
+
+      - name: Check Gradle Project
+        run: |
+          cd "$PROJECT_DIR"
+
+          echo "Project directory:"
+          pwd
+
+          echo ""
+          echo "Project files:"
+          ls -la
+
+          echo ""
+          echo "Gradle wrapper:"
+          ls -la gradlew
+
+      - name: Make Gradle Executable
+        run: |
+          chmod +x "$PROJECT_DIR/gradlew"
+
+      - name: Clean Project
+        run: |
+          cd "$PROJECT_DIR"
+          ./gradlew clean --no-daemon --stacktrace
+
+      - name: Build Dexin Mobile APK
+        run: |
+          cd "$PROJECT_DIR"
+
+          ./gradlew assembleDebug \
+            --no-daemon \
+            --stacktrace
+
+      - name: Find APK
+        run: |
+          echo "Searching for APK..."
+
+          find "$PROJECT_DIR" \
+            -type f \
+            -name "*.apk" \
+            -print
+
+      - name: Upload Dexin Mobile APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: DexinMobile-APK
+          path: |
+            **/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
